@@ -1,0 +1,11 @@
+#create .xml file from current filter rules in thunderbird
+./d2x.bsh | tee g.xml
+
+#on the gmail filters page
+https://mail.google.com/mail/u/0/?ogbl#settings/filters
+#select All filters and delete them.
+#then using "Import filters"
+#  open g.xml
+#  select "Apply new filters to existing email"
+#  "Create filters"
+

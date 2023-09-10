@@ -1,0 +1,1575 @@
+#!/bin/bash
+#[of]:comments
+#[c]this app extracts the email message filters from thunderbird and converts them to gmail xml rules
+#[c]googles "search operator help page" and example rule exports were used to construct the xml output.
+#[c]
+#[c]several functions were borrowed from my "base" function library to simplify my coding efforts.
+#[c]
+#[c]currently supports rules with these fields
+#[c]  from to cc subject body
+#[c]
+#[c]Search operators you can use with Gmail:
+#[c]https://support.google.com/mail/answer/7190
+#[cf]
+#[of]:functions
+#[of]:base
+##if using bash insure extglob is on
+[[ -n "$BASH_VERSION" ]] && shopt -s extglob
+
+#[of]:test
+#[of]:function isdir {
+function isdir {
+#[of]:  usage
+  if [ -z "$1" ] ; then
+    echo "Usage: isdir dirname"
+    echo "Error: must have at least 1 argument"
+    echo "Description: a simplified way of testing if something is a directory."
+    echo "Examples:"
+    echo '  "if isdir /home ; then'
+    echo '    echo is a dir'
+    echo '  else'
+    echo '    echo is not a dir'
+    echo '  fi"'
+    echo '  statement may also be negated'
+    echo '    "if ! isdir /home ; then"'
+    echo "Returns:"
+    echo "  0 true"
+    echo "  1 false"
+    exit 1
+  fi
+#[cf]
+  [ -d "$1" ] && return 0
+  return 1
+}
+#[cf]
+#[of]:function isfile {
+function isfile {
+#[of]:  usage
+  if [ -z "$1" ] ; then
+    echo "Usage: isfile filename"
+    echo "Error: must have at least 1 argument"
+    echo "Description: a simplified way of testing if something is a file."
+    echo "Examples:"
+    echo '  "if isfile /home/file ; then'
+    echo '    echo is a file'
+    echo '  else'
+    echo '    echo is not a file'
+    echo '  fi"'
+    echo '  statement may also be negated'
+    echo '    "if ! isfile /home/file ; then"'
+    echo "Returns:"
+    echo "  0 true"
+    echo "  1 false"
+    exit 1
+  fi
+#[cf]
+  [ -f "$1" ] && return 0
+  return 1
+}
+#[cf]
+#[of]:function isfilelocked {
+function isfilelocked {
+#[of]:  usage
+  if false ; then
+    echo "Usage: isfilelocked {filename}"
+    echo "Error: must have at least 1 argument"
+    echo "Description: checks if {filename} is locked by a process"
+    echo "Examples:"
+    echo '  "if isfilelocked "testfile.txt" ; then'
+    echo '    echo is locked'
+    echo '  else'
+    echo '    echo is unlocked'
+    echo '  fi"'
+    echo '  statement may also be negated'
+    echo '    "if ! isfilelocked "testfile.txt" ; then"'
+    echo "Returns:"
+    echo "  0 true"
+    echo "  1 false"
+    exit 1
+  fi
+#[cf]
+  [[ -n $(fuser "$1" 2>/dev/null) ]]
+}
+#[cf]
+#[of]:function isinpath {
+function isinpath {
+#[of]:  usage
+  if false ; then
+    echo "Usage: isinpath arg"
+    echo "Error: must have at least 1 argument"
+    echo "Description: checks if a given prog is in the path"
+    echo "Examples:"
+    echo '  "if isinpath grep ; then'
+    echo '    echo grep is installed'
+    echo '  else'
+    echo '    echo grep is missing'
+    echo '  fi"'
+    echo "Returns:"
+    echo "  0 true"
+    echo "  1 false"
+    exit 1
+  fi
+#[cf]
+  which "$1" >/dev/null 2>&1
+}
+#[cf]
+#[of]:function isnum {
+function isnum {
+#[of]:  usage
+  if false ; then
+    echo "Usage: isnum arg"
+    echo "Error: must have at least 1 argument"
+    echo "Description: checks if arg is a number"
+    echo "Examples:"
+    echo '  "if isnum 50 ; then'
+    echo '    echo is a number'
+    echo '  else'
+    echo '    echo is not a number'
+    echo '  fi"'
+    echo '  statement may also be negated'
+    echo '    "if ! isnum 50 ; then"'
+    echo "Returns:"
+    echo "  0 true"
+    echo "  1 false"
+    exit 1
+  fi
+#[cf]
+  #set IFS to a sane value
+  typeset IFS=' 	
+'
+  if [[ "$1" == ?(+|-)+([0-9]) ]] ; then
+   return 0
+  fi
+  return 1
+}
+#[cf]
+#[of]:function isset {
+function isset {
+#[of]:  usage
+  if false ; then
+    echo "Usage: isset var"
+    echo "Error: must have at least 1 argument"
+    echo "Description: checks if a given variable is set (i.e. exist)"
+    echo "Examples:"
+    echo '  "if isset your_var ; then'
+    echo '    echo your variable is set'
+    echo '  else'
+    echo '    echo your variable is not set'
+    echo '  fi"'
+    echo '  statement may also be negated'
+    echo '    "if ! isset your_var ; then"'
+    echo "Returns:"
+    echo "  0 true"
+    echo "  1 false"
+    exit 1
+  fi
+#[cf]
+  eval "(( \${$1+1} ))"
+}
+#[cf]
+#[of]:function istextfile {
+function istextfile {
+#[of]:  usage
+  if [ -z "$1" ] ; then
+    echo "Usage: istextfile filename"
+    echo "Error: must have at least 1 argument"
+    echo "Description: checks if filename is a textfile"
+    echo "Examples:"
+    echo '  "if istextfile /home/file ; then'
+    echo '    echo is a textfile'
+    echo '  else'
+    echo '    echo is not a textfile'
+    echo '  fi"'
+    echo '  statement may also be negated'
+    echo '    "if ! istextfile /home/file ; then"'
+    echo "Returns:"
+    echo "  0 true"
+    echo "  1 false"
+    exit 1
+  fi
+#[cf]
+  [ `file "$1" | grep -c -e script -e ascii -e text 2>/dev/null` -gt 0 ] && return 0
+  return 1
+}
+#[cf]
+#[of]:function isuser {
+function isuser {
+#[of]:  usage
+  if [ -z "$1" ] ; then
+    echo "Usage: isuser {user}"
+    echo "Error: must have at least 1 argument"
+    echo "Description: checks if the current user matches user"
+    echo "Examples:"
+    echo '  "if isuser batch ; then'
+    echo '    echo user is batch'
+    echo '  else'
+    echo '    echo user is not batch'
+    echo '  fi"'
+    echo '  statement may also be negated'
+    echo '    "if ! isuser batch ; then"'
+    echo "Returns:"
+    echo "  0 true"
+    echo "  1 false"
+    exit 1
+  fi
+#[cf]
+  typeset _user="$1"
+  [[ $(set -- $(id);a=${1#*\(};echo ${a%\)}) = "${_user}" ]]
+}
+#[cf]
+#[cf]
+#[of]:array
+#[of]:function aset {
+function aset {
+#[of]:  usage
+  if false ; then
+    echo "Usage: aset var [val val val ...]"
+    echo "Error: must have at least 1 args"
+    echo "Description:"
+    echo "  sets a given array variable"
+    echo "  this exist because, there is no common way of setting an array in ksh and bash"
+    echo "Examples:"
+    echo "  i.e.  aset gl_BusinessDays mon tue wed thu fri"
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+}
+if [[ -n "$BASH_VERSION" ]] ; then
+  function aset {
+    eval "
+      shift
+      $1=(\"\$@\")
+    "
+  }
+else
+  function aset {
+    eval "
+      shift
+      set -A $1 -- \"\$@\"
+    "
+  }
+fi
+#[cf]
+#[of]:function asort {
+function asort {
+#[of]:  usage
+  if [[ $# -lt 2 ]] ; then
+    echo "Usage: asort {-|array} [val val val ...]"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  sorts an array"
+    echo "Examples:"
+    echo '  i.e.  asort a "${a[@]}"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  typeset lc_asort_tmp lc_asort_size lc_asort_index
+  unset lc_asort_array
+#[of]:  array bubble sort
+  aset lc_asort_array "$@"
+  ashift ! lc_asort_array
+  lc_asort_size=${#lc_asort_array[@]}
+  ((lc_asort_size-=1))
+  while [[ ${lc_asort_size} -gt 0 ]] ; do
+    lc_asort_index=0    
+    while [[ ${lc_asort_index} -lt ${lc_asort_size} ]] ; do
+      if [[ "${lc_asort_array[${lc_asort_index}]}" > "${lc_asort_array[$((lc_asort_index+1))]}" ]] ; then
+        lc_asort_tmp="${lc_asort_array[$((lc_asort_index+1))]}"
+        lc_asort_array[$((lc_asort_index+1))]="${lc_asort_array[${lc_asort_index}]}"
+        lc_asort_array[${lc_asort_index}]="${lc_asort_tmp}"
+      fi
+      ((lc_asort_index+=1))
+    done
+    ((lc_asort_size-=1))
+  done
+#[cf]
+  if [[ "$1" = "-" ]] ; then
+    echo "${lc_asort_array[@]}"
+  else
+    eval "aset $1 \"\${lc_asort_array[@]}\""
+  fi
+  unset lc_asort_array
+  return 0
+}
+#[cf]
+
+#[of]:function asplit {
+function asplit {
+#[of]:  usage
+  if [[ $# -lt 2 ]] ; then
+    echo "Usage: asplit {array} {delimiter} [string]"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  splits a string into an array list"
+    echo "  this emulates the perl function join"
+    echo "Examples:"
+    echo '  i.e.  asplit b : "part1:part2:part3:part4"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  typeset _esc
+  if [[ "$1" = "-e" ]] ; then
+    _esc=true
+    shift
+  fi
+#[of]:  if [[ -z "$2" ]] ; then
+  if [[ -z "$2" ]] ; then
+    eval "
+      shift;shift
+      typeset _string=\"\$*\"
+      typeset _array
+      while [[ \${#_string} -gt 0 ]] ; do
+        _array[\${#_array[@]}]=\"\${_string%\"\${_string#?}\"}\"
+        _string=\"\${_string#?}\"
+      done
+      if isnum \"$1\" ; then
+        echo \"\${_array[$1]}\"
+      else
+        aset $1 \"\${_array[@]}\"
+      fi
+    "
+#[cf]
+#[of]:  elif ${_esc\:-false} ; then
+  elif ${_esc:-false} ; then
+    eval "
+      shift;shift
+      typeset _array _char
+      typeset _lit=false
+      typeset _index=0
+      typeset _string=\"\$*\"
+
+      while [[ \${#_string} -gt 0 ]] ; do
+        _char=\"\${_string%\"\${_string#?}\"}\"
+        _string=\"\${_string#?}\"
+        if [[ \"\${_char}\" = \"\\\\\" ]] ; then
+          _lit=true
+          continue
+        elif ! \${_lit} && [[ \"\${_char}\" = \"$2\" ]] ; then
+          _array[\${_index}]=\"\${_entry}\"
+          unset _entry
+          let \"_index+=1\"
+          continue
+        fi
+        _lit=false
+        typeset _entry=\"\${_entry}\${_char}\"
+      done
+      _array[\${_index}]=\"\${_entry}\"
+
+      if isnum \"$1\" ; then
+        echo \"\${_array[$1]}\"
+      else
+        aset $1 \"\${_array[@]}\"
+      fi
+    "
+#[cf]
+#[of]:  else
+  else
+    eval "
+      shift;shift
+      typeset IFS=\"$2\"
+      typeset _string=\"\$*\"
+      if isnum \"$1\" ; then
+        set -- \$@
+        eval \"echo \\\"\\\$\$(($1 +1))\\\" \"
+      else
+        if [[ \"\${_string%$2}\" = \"\$*\" ]] ; then
+          aset $1 \$@
+        else
+          aset $1 \$@ \"\"
+        fi
+      fi
+    "
+#[cf]
+  fi
+}
+##if first arg is a number it is a zero based position in the string
+##ugh.  yet another lovely backslash forrest.
+#[cf]
+#[of]:function ajoin {
+function ajoin {
+#[of]:  usage
+  if [[ $# -lt 2 ]] ; then
+    echo "Usage: ajoin {var} {delimiter} [val val val ...]"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  joins a list into a single string"
+    echo "  this emulates the perl function join"
+    echo "Examples:"
+    echo '  i.e.  ajoin a : "${a[@]}"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  eval "
+    shift;shift
+    typeset IFS=\"$2\"
+    if [[ \"$1\" = \"-\" ]] ; then
+      echo \"\$*\"
+    else
+      $1=\"\$*\"
+    fi
+  "
+}
+#[cf]
+
+#[of]:function apush {
+function apush {
+#[of]:  usage
+  if [[ $# -eq 0 ]] ; then
+    echo "Usage: apush {array} [val val val ...]"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  adds new element/s to the end of an array"
+    echo "  this emulates the perl function unshift"
+    echo "Examples:"
+    echo '  i.e.  apush b "a string"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  eval "
+    shift
+    aset $1 \"\${$1[@]}\" \"\$@\"
+  "
+}
+#[cf]
+#[of]:function apop {
+function apop {
+#[of]:  usage
+  if [[ $# -ne 2 ]] ; then
+    echo "Usage: apop {!|-|var} {array}"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  shift an array 1 element right and return that element in var"
+    echo "  this emulates the perl function shift"
+    echo "Examples:"
+    echo '  i.e.  apop b a'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  eval "
+    if [[ \${#$2[@]} -gt 0 ]] ; then
+      if [[ \"$1\" = \"!\" ]] ; then
+        :
+      elif [[ \"$1\" = \"-\" ]] ; then
+        echo \"\${$2[\$((\${#$2[@]} -1))]}\"
+      else
+        $1=\"\${$2[\$((\${#$2[@]} -1))]}\"
+      fi
+      unset $2[\$((\${#$2[@]} -1))]
+    else
+      return 1
+    fi
+  "
+  return 0
+}
+#[cf]
+
+#[of]:function aunshift {
+function aunshift {
+#[of]:  usage
+  if [[ $# -eq 0 ]] ; then
+    echo "Usage: aunshift {array} [val val val ...]"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  adds new element/s to the beginning of an array"
+    echo "  this emulates the perl function unshift"
+    echo "Examples:"
+    echo '  i.e.  aunshift b "a string"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  eval "
+    shift
+    aset $1 \"\$@\" \"\${$1[@]}\"
+  "
+}
+#[cf]
+#[of]:function ashift {
+function ashift {
+#[of]:  usage
+  if [[ $# -ne 2 ]] ; then
+    echo "Usage: ashift {!|-|var} {array}"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  shift an array 1 element left and return that element in var"
+    echo "  this emulates the perl function shift"
+    echo "Examples:"
+    echo '  i.e.  ashift b a'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  eval "
+    set -- \"\${$2[@]}\"
+    if [[ \$# -gt 0 ]] ; then
+      if [[ \"$1\" = \"!\" ]] ; then
+        :
+      elif [[ \"$1\" = \"-\" ]] ; then
+        echo \"\$1\"
+      else
+        $1=\"\$1\"
+      fi
+      [[ \$# -gt 0 ]] && shift
+      aset $2 \"\$@\"
+    else
+      return 1
+    fi
+  "
+  return 0
+}
+#[cf]
+
+#[of]:function awalkl {
+function awalkl {
+#[of]:  usage
+  if [[ $# -ne 2 ]] ; then
+    echo "Usage: awalkl {left array} {right array}"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  walks/moves array elements  <---  right to left"
+    echo "Examples:"
+    echo '  i.e.  awalkl nodes args'
+    echo "Returns:"
+    echo "  0 success"
+    echo "  1 if right array is empty"
+    exit 1
+  fi
+#[cf]
+  ashift lc_awalkl_tmp $2 || return $?
+  apush $1 "${lc_awalkl_tmp}"
+  unset lc_awalkl_tmp
+  return 0
+}
+#[cf]
+#[of]:function awalkr {
+function awalkr {
+#[of]:  usage
+  if [[ $# -ne 2 ]] ; then
+    echo "Usage: awalkr {left array} {right array}"
+    echo "Error: must have at least 2 args"
+    echo "Description:"
+    echo "  walks/moves array elements  --->  left to right"
+    echo "Examples:"
+    echo '  i.e.  awalkr args nodes'
+    echo "Returns:"
+    echo "  0 success"
+    echo "  1 if left array is empty"
+    exit 1
+  fi
+#[cf]
+  apop lc_awalkl_tmp $1 || return $?
+  aunshift $2 "${lc_awalkl_tmp}"
+  unset lc_awalkl_tmp
+  return 0
+}
+#[cf]
+#[cf]
+#[of]:string
+#[of]:function instring {
+function instring {
+#[of]:  usage
+  if [ $# -ne 3 ] ; then
+    echo 'Usage: instring {!|-|var} "{string}" {pattern}'
+    echo "Error: must have at least 3 args"
+    echo "Description:"
+    echo "  returns the index of a pattern within a given string"
+    echo "    var|stdout = the index of the match 0-n"
+    echo "             if no match -1"
+    echo "Examples:"
+    echo "  if found _position will be set with the index of YYYY"
+    echo '    _position=$(instring - "${_format}" YYYY)'
+    echo '    instring _position "${_format}" YYYY'
+    echo "Returns:"
+    echo "  0 success"
+    echo "  1 no match"
+    exit 1
+  fi
+#[cf]
+  typeset lc_instring_index lc_instring_string lc_instring_pattern lc_instring_searchlength lc_instring_result lc_instring_return
+  lc_instring_string="$2"
+  lc_instring_pattern="$3"
+  lc_instring_searchlength=$((1 + ${#lc_instring_string} - ${#lc_instring_pattern}))
+  lc_instring_index=0
+  if [[ -n "${lc_instring_pattern}" ]] ; then
+    while [[ ${lc_instring_index} -lt ${lc_instring_searchlength} ]] ; do
+      if [[ "${lc_instring_string}" != "${lc_instring_string#@(${lc_instring_pattern})}" ]] ; then
+        lc_instring_result=${lc_instring_index}
+        lc_instring_return=0
+        break
+      fi
+      lc_instring_string="${lc_instring_string#?}"
+      lc_instring_index=$(( lc_instring_index + 1 ))
+    done
+  else
+    lc_instring_result=0
+    lc_instring_return=0
+  fi
+  if [[ "$1" = "!" ]] ; then
+      :
+  elif [[ "$1" = "-" ]] ; then
+    echo ${lc_instring_result:--1}
+  else
+    eval $1=\"\${lc_instring_result:--1}\"
+  fi
+  return ${lc_instring_return:-1}
+}
+#[cf]
+#[of]:function substr {
+function substr {
+#[of]:  usage
+  if false ; then
+    echo 'Usage: substr {var|-} "{string}" {index} [length]'
+    echo "Error: must have at least 4 args"
+    echo "Description:"
+    echo "  returns, via stdout, a substring of the given string"
+    echo "  the index is 0 based"
+    echo "  this exist because, there is no common way of doing a substring in ksh and bash"
+    echo "Examples:"
+    echo "  sets _year to a 2 character substring of _var"
+    echo '    _year="$(subst "${_var}" ${_position} 2)"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+}
+if [[ -n "${BASH_VERSION}" ]] ; then
+  ##when with bash do the bash
+  function substr {
+    eval typeset lc_substr_string=\"\${2:$3${4:+:}$4}\"
+    if [[ "$1" = "-" ]] ; then
+      echo "${lc_substr_string}"
+    else
+      eval $1=\"\${lc_substr_string}\"
+    fi
+    return 0
+  }
+else
+  function substr {
+    typeset lc_substr_string
+    lc_substr_string=$(
+      if [[ ${4:-1} -eq 0 ]] ; then
+        echo ""
+      else
+        echo "$2" | cut -c $(($3+1))-${4:+$(($3+$4))}
+      fi
+    )
+    if [[ "$1" = "-" ]] ; then
+      echo "${lc_substr_string}"
+    else
+      eval $1=\"\${lc_substr_string}\"
+    fi
+    return 0
+  }
+fi
+#[cf]
+#[of]:function tolower {
+function tolower {
+#[of]:  usage
+  if [ -z "$1" ] ; then
+    echo "Usage: tolower {var|-} [string]"
+    echo "Error: must have at least 1 argument"
+    echo "Description: transforms a variable to lower case"
+    echo "Examples:"
+    echo '  tolower lc_main_filename'
+    echo '  tolower - "A Test String"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  typeset lc_tolower_data lc_tolower_result
+  if [[ $# = 1 ]] ; then
+    eval lc_tolower_data=\"\${$1}\"
+  else
+    lc_tolower_data="$2"
+  fi
+  if [ -n "$BASH_VERSION" ] ; then
+    typeset lc_tolower_result=$(echo "${lc_tolower_data}" | tr A-Z a-z)
+  else
+    typeset -l lc_tolower_result="${lc_tolower_data}"
+  fi
+  if [[ "$1" = "-" ]] ; then
+    echo "${lc_tolower_result}"
+  else
+    eval $1=\"\${lc_tolower_result}\"
+  fi
+  return 0
+}
+#[cf]
+#[of]:function toupper {
+function toupper {
+#[of]:  usage
+  if [ -z "$1" ] ; then
+    echo "Usage: toupper {var|-} [string]"
+    echo "Error: must have at least 1 argument"
+    echo "Description: transforms a variable to lower case"
+    echo "Examples:"
+    echo '  toupper lc_main_filename'
+    echo '  toupper - "A Test String"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  typeset lc_toupper_data lc_toupper_result
+  if [[ $# = 1 ]] ; then
+    eval lc_toupper_data=\"\${$1}\"
+  else
+    lc_toupper_data="$2"
+  fi
+  if [ -n "$BASH_VERSION" ] ; then
+    typeset lc_toupper_result=$(echo "${lc_toupper_data}" | tr a-z A-Z)
+  else
+    typeset -u lc_toupper_result="${lc_toupper_data}"
+  fi
+  if [[ "$1" = "-" ]] ; then
+    echo "${lc_toupper_result}"
+  else
+    eval $1=\"\${lc_toupper_result}\"
+  fi
+  return 0
+}
+#[cf]
+#[of]:function ascii2hex {
+function ascii2hex {
+#[c][var] value
+  typeset lc_ascii2hex_string lc_ascii2hex_hexpart lc_ascii2hex_hex
+  lc_ascii2hex_string="${2:-$1}"
+  while [[ ${#lc_ascii2hex_string} -gt 0 ]] ; do
+    lc_ascii2hex_hexpart=$(printf  %02X "'${lc_ascii2hex_string%"${lc_ascii2hex_string#?}"}")
+    lc_ascii2hex_hex="${lc_ascii2hex_hex}${lc_ascii2hex_hexpart}"
+    lc_ascii2hex_string="${lc_ascii2hex_string#?}"
+  done
+  if [[ $# -eq 1 ]] ; then
+    echo "${lc_ascii2hex_hex}"
+  else
+    eval "$1=\"\${lc_ascii2hex_hex}\""
+  fi
+  return 0
+}
+#[cf]
+#[of]:function cleancat {
+function cleancat {
+#[of]:  usage
+  if [ $# -gt 1 ] ; then
+    echo "Usage: cleancat [filename]|[redirect]"
+    echo "Error: must have 0 or 1 argument"
+    echo "Description: dumps a file or pipe removing blank lines and comments"
+    echo "Examples:"
+    echo '  cleancat ${lc_main_filename}'
+    echo '  bigdataapp | cleancat'
+    echo '  cleancat < echo "A Test String"'
+    echo "Returns:"
+    echo "  0 success"
+    exit 1
+  fi
+#[cf]
+  if [[ -n "$1" ]] ; then
+    [[ ! -r "$1" ]] && die 1 "could not read file $1"
+    grep -v -e "^[[:blank:]]*$" -e "^[[:blank:]]*#" "$1" 2>/dev/null
+  else
+    grep -v -e "^[[:blank:]]*$" -e "^[[:blank:]]*#" 2>/dev/null
+  fi
+}
+#[cf]
+#[cf]
+#[of]:hash
+#[of]:function hashkeys {
+function hashkeys {
+#[c]-|var hash [key...key...]
+  unset lc_hashkeys_key
+  typeset lc_hashkeys_return lc_hashkeys_hash
+  lc_hashkeys_return="$1"
+  lc_hashkeys_hash="$2"
+  while [[ $# -gt 2 ]] ; do
+    hashconvert2key lc_hashkeys_key "$3"
+    lc_hashkeys_hash="${lc_hashkeys_hash}_${lc_hashkeys_key}"
+    shift
+  done
+  eval "
+    if [[ \${${lc_hashkeys_hash}__count} -gt 0 ]] ; then
+      lc_hashkeys_key=\${${lc_hashkeys_hash}__first}
+      while eval [[ -n \\\"\\\${${lc_hashkeys_hash}__meta_\${lc_hashkeys_key}[2]}\\\" ]] ; do
+        eval \"
+          typeset lc_hashkeys_hashkeys
+          lc_hashkeys_hashkeys[\\\${#lc_hashkeys_hashkeys[@]}]=\\\"\\\${${lc_hashkeys_hash}__meta_\${lc_hashkeys_key}[0]}\\\"
+          lc_hashkeys_key=\\\"\\\${${lc_hashkeys_hash}__meta_\${lc_hashkeys_key}[2]}\\\"
+        \"
+      done
+      eval \"
+        typeset lc_hashkeys_hashkeys
+        lc_hashkeys_hashkeys[\\\${#lc_hashkeys_hashkeys[@]}]=\\\"\\\${${lc_hashkeys_hash}__meta_\${lc_hashkeys_key}[0]}\\\"
+      \"
+    else
+      [[ \"${lc_hashkeys_return}\" != \"-\" ]] && unset ${lc_hashkeys_return}
+      unset lc_hashkeys_key
+      return 1
+    fi
+  "
+  if [[ "${lc_hashkeys_return}" = "-" ]] ; then
+    echo "${lc_hashkeys_hashkeys[@]}"
+  else
+    eval "aset ${lc_hashkeys_return} \"\${lc_hashkeys_hashkeys[@]}\""
+  fi
+  unset lc_hashkeys_key
+  return 0
+}
+#[cf]
+#[of]:function hashdump {
+function hashdump {
+#[c]-r hash [key...key...]
+  typeset lc_hashdump_hash lc_hashdump_key lc_hashdump_id lc_hashdump_raw lc_hashdump_tmp lc_hashdump_filter
+  lc_hashdump_filter=true
+  if [[ "$1" = "-r" ]] ; then
+    lc_hashdump_raw=true
+    unset lc_hashdump_filter
+    shift
+  fi
+  lc_hashdump_hash=$1
+  while [[ $# -gt 1 ]] ; do
+    hashconvert2key lc_hashdump_key "$2"
+    lc_hashdump_hash="${lc_hashdump_hash}_${lc_hashdump_key}"
+    shift
+  done
+  ##dump entire hash to stdout
+  {
+    set | grep ^${lc_hashdump_hash}__first | (read -r i && echo "${lc_hashdump_raw:+${i}}${lc_hashdump_filter:+${i#*_}}")
+    set | grep ^${lc_hashdump_hash}__count | (read -r i && echo "${lc_hashdump_raw:+${i}}${lc_hashdump_filter:+${i#*_}}")
+    if [[ -n "$BASH_VERSION" ]] ; then
+      ##force output to a ksh friendly style
+      for lc_hashdump_key in $(eval echo \${!${lc_hashdump_hash}_*}) ; do
+        [[  "${lc_hashdump_key}" = "${lc_hashdump_hash}__first" || \
+            "${lc_hashdump_key}" = "${lc_hashdump_hash}__count" || \
+            "${lc_hashdump_key}" = "${lc_hashdump_hash}__last" ]] && continue
+        for lc_hashdump_id in $(eval echo \${!${lc_hashdump_key}[@]}) ; do
+          eval "lc_hashdump_tmp=\"\${${lc_hashdump_key}[lc_hashdump_id]}\""
+          lc_hashdump_tmp=$(set | grep ^lc_hashdump_tmp=)
+          if [[ -z "${lc_hashdump_key##*__data_*}" ]] ; then
+            echo "${lc_hashdump_raw:+${lc_hashdump_key}}${lc_hashdump_filter:+${lc_hashdump_key#*_}}=${lc_hashdump_tmp#lc_hashdump_tmp=}"
+          else
+            echo "${lc_hashdump_raw:+${lc_hashdump_key}}${lc_hashdump_filter:+${lc_hashdump_key#*_}}[${lc_hashdump_id}]=${lc_hashdump_tmp#lc_hashdump_tmp=}"
+          fi
+        done
+      done
+    else
+      ##our current shell is ksh -- a simple set dump will do
+      set | grep -e "^${lc_hashdump_hash}_" | (
+        while read -r i ; do
+          [[  "${i%%=*}" = "${lc_hashdump_hash}__first" || \
+              "${i%%=*}" = "${lc_hashdump_hash}__count" || \
+              "${i%%=*}" = "${lc_hashdump_hash}__last" ]] && continue
+          echo "${lc_hashdump_raw:+${i}}${lc_hashdump_filter:+${i#*_}}"
+        done
+      )
+    fi
+    set | grep ^${lc_hashdump_hash}__last | (read -r i && echo "${lc_hashdump_raw:+${i}}${lc_hashdump_filter:+${i#*_}}")
+  }
+  return 0
+}
+#[cf]
+#[of]:function hashsave {
+function hashsave {
+#[c]-r hash [key...key...] filename
+  unset lc_hashsave_file
+  aset lc_hashsave_hash "$@"
+  apop lc_hashsave_file lc_hashsave_hash
+  ##do we have permission to write the hashtable file?
+  if [[ -d "${lc_hashsave_file}" ]] ; then
+    echo "hashtable file \"${lc_hashsave_file}\" already exist as a directory" >&2
+    return 1
+  fi
+  ##this checks write permissons and clears the hashtable file
+  if ! : > "${lc_hashsave_file}" >/dev/null 2>&1 ; then
+    echo "the hashtable file \"${lc_hashsave_file}\" is not writeable" >&2
+    return 1
+  fi
+  ##dump entire hash to file
+  hashdump "${lc_hashsave_hash[@]}"  > "${lc_hashsave_file}"
+  unset lc_hashsave_hash lc_hashsave_file
+  return 0
+}
+#[cf]
+#[of]:function hashload {
+function hashload {
+#[c]hash [key...key...] filename
+  typeset lc_hashload_hash lc_hashload_key lc_hashload_file
+  lc_hashload_hash=$1
+  while [[ $# -gt 2 ]] ; do
+    hashconvert2key lc_hashload_key "$2"
+    lc_hashload_hash="${lc_hashload_hash}_${lc_hashload_key}"
+    shift
+  done
+  lc_hashload_file="$2"
+
+  ##do we have permission to read the hashtable file and does it have content?
+  if [[ ! -e "${lc_hashload_file}" ]] ; then
+    echo "the hashtable file \"${lc_hashload_file}\" does not exist" >&2
+    return 1
+  fi
+  if [[ ! -r "${lc_hashload_file}" ]] ; then
+    echo "the hashtable file \"${lc_hashload_file}\" is not readable" >&2
+    return 1
+  fi
+  if [[ ! -s "${lc_hashload_file}" ]] ; then
+    echo "the hashtable file \"${lc_hashload_file}\" has no content" >&2
+    return 1
+  fi
+  if ! grep -q -e ^_last= -e __last= "${lc_hashload_file}" ; then
+    echo "the hashtable file \"${lc_hashload_file}\" is incomplete or damaged" >&2
+    return 1
+  fi
+  ##is the hashtable file complete, does the hashtable file have a last= element
+  while read -r lc_hashload_key ; do
+    eval ${lc_hashload_hash}_${lc_hashload_key}
+  done < "${lc_hashload_file}"
+  ##load entire hash from file as named hash
+  return 0
+}
+#[cf]
+#[of]:function hashdel {
+if [[ -n "$BASH_VERSION" ]] ; then
+  function hashdel {
+#[c]  hash
+    typeset lc_hashdel_hash
+    lc_hashdel_hash="$1"
+    while [[ $# -gt 1 ]] ; do
+      hashconvert2key lc_hashdel_key "$2"
+      lc_hashdel_hash="${lc_hashdel_hash}_${lc_hashdel_key}"
+      shift
+    done
+    eval "
+      unset \${!${lc_hashdel_hash}_*}
+    "
+    return 0
+  }
+else
+  function hashdel {
+#[c]  hash
+    unset lc_hashdel_key
+    typeset lc_hashdel_hash
+    lc_hashdel_hash="$1"
+    while [[ $# -gt 1 ]] ; do
+      hashconvert2key lc_hashdel_key "$2"
+      lc_hashdel_hash="${lc_hashdel_hash}_${lc_hashdel_key}"
+      shift
+    done
+    set | grep \
+      -e "^${lc_hashdel_hash}_" | \
+      while read lc_hashdel_hash ; do
+        eval "
+          unset ${lc_hashdel_hash%%=*}
+        "
+      done
+    unset lc_hashdel_key
+    return 0
+  }
+fi
+#[cf]
+#[of]:function hashsetkey {
+function hashsetkey {
+#[c][-l] hash key [key...key...] [+=|-=|=] value
+#[c]
+#[c]hash key key += value
+#[c]key key += value
+#[c]key += value
+#[c]
+#[c]hash key key key value
+#[c]key key key value
+#[c]key key value
+#[c]
+#[c]hash key value
+#[c]
+#[c]hash key += value
+#[c]key += value
+#[c]
+#[c]
+  typeset lc_hashsetkey_forcelower lc_hashsetkey_math
+  if [[ "$1" = "-l" ]] ; then
+    lc_hashsetkey_forcelower="-l"
+    shift
+  fi
+
+  [[ $# -lt 3 ]] && die 1 "usage: [-l] hash key [key...key...] [+=|-=|=] value"
+  aset lc_hashsetkey_args "$@"
+  ashift lc_hashsetkey_hash lc_hashsetkey_args
+  apop lc_hashsetkey_value lc_hashsetkey_args
+  apop lc_hashsetkey_keyname lc_hashsetkey_args
+  
+  if [[ "${lc_hashsetkey_keyname}" = @(+=|-=|=) ]] ; then
+    lc_hashsetkey_math="${lc_hashsetkey_keyname}"
+    apop lc_hashsetkey_keyname lc_hashsetkey_args
+  fi
+  while ashift lc_hashsetkey_hashpart lc_hashsetkey_args ; do
+    hashconvert2key lc_hashsetkey_hashpart "${lc_hashsetkey_hashpart}"
+    lc_hashsetkey_hash="${lc_hashsetkey_hash}_${lc_hashsetkey_hashpart}"
+  done
+
+  hashconvert2key ${lc_hashsetkey_forcelower} lc_hashsetkey_key "${lc_hashsetkey_keyname}"
+
+  eval "
+    [[ -z \"\${${lc_hashsetkey_hash}__first}\" ]] && ${lc_hashsetkey_hash}__first=${lc_hashsetkey_key}
+    if [[ -z \"\${${lc_hashsetkey_hash}__meta_${lc_hashsetkey_key}[0]}\" ]] ; then
+      ${lc_hashsetkey_hash}__meta_${lc_hashsetkey_key}[0]=\"\${lc_hashsetkey_keyname}\"
+      if [[ -n \"\${${lc_hashsetkey_hash}__last}\" ]] ; then
+        eval \"\${lc_hashsetkey_hash}__meta_\${${lc_hashsetkey_hash}__last}[2]=${lc_hashsetkey_key}\"
+        ${lc_hashsetkey_hash}__meta_${lc_hashsetkey_key}[1]=\${${lc_hashsetkey_hash}__last}
+      fi
+      ${lc_hashsetkey_hash}__last=${lc_hashsetkey_key}
+      ${lc_hashsetkey_hash}__count=\"\${${lc_hashsetkey_hash}__count:-0}\"
+      let \"${lc_hashsetkey_hash}__count+=1\"
+    fi
+  "
+  if [[ -n "${lc_hashsetkey_math}" ]] && isset ${lc_hashsetkey_hash}__data_${lc_hashsetkey_key} ; then
+    let "${lc_hashsetkey_hash}__data_${lc_hashsetkey_key} ${lc_hashsetkey_math} ${lc_hashsetkey_value}"
+  else
+    eval "${lc_hashsetkey_hash}__data_${lc_hashsetkey_key}=\"\${lc_hashsetkey_value}\""
+  fi
+  unset lc_hashsetkey_args lc_hashsetkey_hash lc_hashsetkey_hashpart lc_hashsetkey_keyname lc_hashsetkey_key lc_hashsetkey_value
+  return 0
+}
+#[cf]
+#[of]:function hashgetkey {
+function hashgetkey {
+#[c]!|-|var hash key [key...key...]
+  unset lc_hashgetkey_hashpart lc_hashgetkey_key
+  typeset lc_hashgetkey_return lc_hashgetkey_hash
+  typeset lc_hashgetkey_forcelower
+  if [[ "$1" = "-l" ]] ; then
+    lc_hashgetkey_forcelower="-l"
+    shift
+  fi
+
+  lc_hashgetkey_return="$1"
+  lc_hashgetkey_hash="$2"
+  while [[ $# -gt 3 ]] ; do
+    hashconvert2key lc_hashgetkey_hashpart "$3"
+    lc_hashgetkey_hash="${lc_hashgetkey_hash}_${lc_hashgetkey_hashpart}"
+    shift
+  done
+  hashconvert2key ${lc_hashgetkey_forcelower} lc_hashgetkey_key "$3"
+
+  if [[ "${lc_hashgetkey_return}" = "!" ]] ; then
+    :
+  elif [[ "${lc_hashgetkey_return}" = "-" ]] ; then
+    eval "echo \"\${${lc_hashgetkey_hash}__data_${lc_hashgetkey_key}}\""
+  else
+    eval "${lc_hashgetkey_return}=\"\${${lc_hashgetkey_hash}__data_${lc_hashgetkey_key}}\""
+  fi
+  isset "${lc_hashgetkey_hash}__meta_${lc_hashgetkey_key}"
+  lc_hashgetkey_return=$?
+  unset lc_hashgetkey_hashpart lc_hashgetkey_key
+  return ${lc_hashgetkey_return}
+}
+#[cf]
+#[of]:function hashdelkey {
+function hashdelkey {
+#[c]hash key [key...key...]
+  unset lc_hashdelkey_hashpart lc_hashdelkey_key
+  typeset lc_hashdelkey_hash
+  typeset lc_hashdelkey_forcelower
+  if [[ "$1" = "-l" ]] ; then
+    lc_hashdelkey_forcelower="-l"
+    shift
+  fi
+
+  lc_hashdelkey_hash="$1"
+  while [[ $# -gt 2 ]] ; do
+    hashconvert2key lc_hashdelkey_hashpart "$2"
+    lc_hashdelkey_hash="${lc_hashdelkey_hash}_${lc_hashdelkey_hashpart}"
+    shift
+  done
+  hashconvert2key ${lc_hashdelkey_forcelower} lc_hashdelkey_key "$2"
+
+  eval "
+    if [[ -n \"\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[0]}\" ]] ; then
+      if [[ \"\${${lc_hashdelkey_hash}__first}\" = \"${lc_hashdelkey_key}\" ]] ; then
+        ${lc_hashdelkey_hash}__first=\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[2]}
+        eval \"unset \${lc_hashdelkey_hash}__meta_\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[2]}[1]\"
+      elif [[ \"\${${lc_hashdelkey_hash}__last}\" = \"${lc_hashdelkey_key}\" ]] ; then
+        ${lc_hashdelkey_hash}__last=\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[1]}
+        eval \"unset \${lc_hashdelkey_hash}__meta_\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[1]}[2]\"
+      else
+        eval \"
+          \${lc_hashdelkey_hash}__meta_\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[1]}[2]=\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[2]}
+          \${lc_hashdelkey_hash}__meta_\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[2]}[1]=\${${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}[1]}
+        \"
+      fi
+      unset ${lc_hashdelkey_hash}__meta_${lc_hashdelkey_key}
+      unset ${lc_hashdelkey_hash}__data_${lc_hashdelkey_key}
+      let \"${lc_hashdelkey_hash}__count-=1\"
+      if [[ \${${lc_hashdelkey_hash}__count} -eq 0 ]] ; then
+        unset ${lc_hashdelkey_hash}__first
+        unset ${lc_hashdelkey_hash}__last
+        unset ${lc_hashdelkey_hash}__count
+      fi
+    else
+      unset lc_hashdelkey_hashpart lc_hashdelkey_key
+      return 1
+    fi
+  "
+  unset lc_hashdelkey_hashpart lc_hashdelkey_key
+  return 0
+}
+#[cf]
+#[of]:function hashgetsize {
+function hashgetsize {
+#[c]!|-|var hash [key...key...]
+  unset lc_hashgetsize_hashpart
+  typeset lc_hashgetsize_var lc_hashgetsize_hash lc_hashgetsize_count lc_hashgetsize_return
+  lc_hashgetsize_var="$1"
+  lc_hashgetsize_hash="$2"
+  while [[ $# -gt 2 ]] ; do
+    hashconvert2key lc_hashgetsize_hashpart "$3"
+    lc_hashgetsize_hash="${lc_hashgetsize_hash}_${lc_hashgetsize_hashpart}"
+    shift
+  done
+  if [[ "${lc_hashgetsize_var}" = "!" ]] ; then
+    :
+  elif [[ "${lc_hashgetsize_var}" = "-" ]] ; then
+    eval "echo \"\${${lc_hashgetsize_hash}__count-0}\""
+  else
+    eval "${lc_hashgetsize_var}=\"\${${lc_hashgetsize_hash}__count-0}\""
+  fi
+  unset lc_hashgetsize_hashpart
+  isset "${lc_hashgetsize_hash}__count"
+}
+#[cf]
+#[of]:function hashgetfirst {
+function hashgetfirst {
+#[c]!|-|var [-k key] hash [key...key...]
+  unset lc_hashgetfirst_key lc_hashgetfirst_hashpart
+  typeset lc_hashgetfirst_return lc_hashgetfirst_hash
+  lc_hashgetfirst_return="$1"
+
+  if [[ "$2" = "-k" ]] ; then
+    shift
+    hashconvert2key lc_hashgetfirst_key "$2"
+    shift
+  fi
+
+  lc_hashgetfirst_hash="$2"
+  while [[ $# -gt 2 ]] ; do
+    hashconvert2key lc_hashgetfirst_hashpart "$3"
+    lc_hashgetfirst_hash="${lc_hashgetfirst_hash}_${lc_hashgetfirst_hashpart}"
+    shift
+  done
+
+  if ! isset lc_hashgetfirst_key ; then
+    typeset lc_hashgetfirst_key
+    eval "lc_hashgetfirst_key=\${${lc_hashgetfirst_hash}__first}"
+  fi
+  if ! isset "${lc_hashgetfirst_hash}__meta_${lc_hashgetfirst_key}" ; then
+    unset lc_hashgetfirst_key lc_hashgetfirst_hashpart
+    return 1
+  fi
+  eval "
+    if isset ${lc_hashgetfirst_hash}__meta_${lc_hashgetfirst_key}[2] ; then
+      ${lc_hashgetfirst_hash}__next=\${${lc_hashgetfirst_hash}__meta_${lc_hashgetfirst_key}[2]}
+    else
+      unset ${lc_hashgetfirst_hash}__next
+    fi
+
+    if [[ \"\${lc_hashgetfirst_return}\" = \"!\" ]] ; then
+      :
+    elif [[ \"\${lc_hashgetfirst_return}\" = \"-\" ]] ; then
+      echo \"\${${lc_hashgetfirst_hash}__data_${lc_hashgetfirst_key}}\"
+    else
+      ${lc_hashgetfirst_return}=\"\${${lc_hashgetfirst_hash}__data_${lc_hashgetfirst_key}}\"
+    fi
+  "
+  unset lc_hashgetfirst_key lc_hashgetfirst_hashpart
+  return 0
+}
+#[cf]
+#[of]:function hashgetnext {
+function hashgetnext {
+#[c]!|-|var hash [key...key...]
+  unset lc_hashgetnext_hashpart
+  typeset lc_hashgetnext_return lc_hashgetnext_hash lc_hashgetnext_key
+  lc_hashgetnext_return="$1"
+
+  lc_hashgetnext_hash="$2"
+  while [[ $# -gt 2 ]] ; do
+    hashconvert2key lc_hashgetnext_hashpart "$3"
+    lc_hashgetnext_hash="${lc_hashgetnext_hash}_${lc_hashgetnext_hashpart}"
+    shift
+  done
+
+  if ! isset ${lc_hashgetnext_hash}__next ; then
+    unset lc_hashgetnext_hashpart
+    return 1
+  fi
+  eval "lc_hashgetnext_key=\${${lc_hashgetnext_hash}__next}"
+
+  eval "
+    if isset ${lc_hashgetnext_hash}__meta_${lc_hashgetnext_key}[2] ; then
+      ${lc_hashgetnext_hash}__next=\${${lc_hashgetnext_hash}__meta_${lc_hashgetnext_key}[2]}
+    else
+      unset ${lc_hashgetnext_hash}__next
+    fi
+
+    if [[ \"\${lc_hashgetnext_return}\" = \"!\" ]] ; then
+      :
+    elif [[ \"\${lc_hashgetnext_return}\" = \"-\" ]] ; then
+      echo \"\${${lc_hashgetnext_hash}__data_${lc_hashgetnext_key}}\"
+    else
+      ${lc_hashgetnext_return}=\"\${${lc_hashgetnext_hash}__data_${lc_hashgetnext_key}}\"
+    fi
+  "
+  unset lc_hashgetnext_hashpart
+  return 0
+}
+#[cf]
+#[of]:function hashconvert2key {
+if [[ -n "$BASH_VERSION" ]] ; then
+  function hashconvert2key {
+#[c]  [var] value
+    typeset lc_hashconvert2key_string lc_hashconvert2key_char lc_hashconvert2key_hexpart lc_hashconvert2key_key
+    typeset lc_hashconvert2key_forcelower
+    lc_hashconvert2key_forcelower=false
+    if [[ "$1" = "-l" ]] ; then
+      lc_hashconvert2key_forcelower=true
+      shift
+    fi
+    lc_hashconvert2key_string="${2-$1}"
+    if [[ -z "${lc_hashconvert2key_string}" ]] ; then
+      echo "hash error, empty keys are not permitted."
+      exit 1
+    fi
+    if ! ${lc_hashconvert2key_forcelower} && [[ "${lc_hashconvert2key_string}" = +([[:alnum:]]) ]] ; then
+      lc_hashconvert2key_key="${lc_hashconvert2key_string}"
+    else
+      while [[ ${#lc_hashconvert2key_string} -gt 0 ]] ; do
+        lc_hashconvert2key_char="${lc_hashconvert2key_string%"${lc_hashconvert2key_string#?}"}"
+        if [[ "${lc_hashconvert2key_char}" = [[:alnum:]] ]] ; then
+          if ${lc_hashconvert2key_forcelower} && [[ "${lc_hashconvert2key_char}" = [[:alpha:]] ]] ; then
+            printf -v lc_hashconvert2key_char %o $((36#${lc_hashconvert2key_char}+87))
+            lc_hashconvert2key_key="${lc_hashconvert2key_key}$(echo -ne "\\0${lc_hashconvert2key_char}")"
+          else
+            lc_hashconvert2key_key="${lc_hashconvert2key_key}${lc_hashconvert2key_char}"
+          fi
+        else
+          printf -v lc_hashconvert2key_hexpart %02X "'${lc_hashconvert2key_char}"
+          lc_hashconvert2key_key="${lc_hashconvert2key_key}${lc_hashconvert2key_hexpart}"
+        fi
+        lc_hashconvert2key_string="${lc_hashconvert2key_string#?}"
+      done
+    fi
+    if [[ $# -eq 1 ]] ; then
+      echo "${lc_hashconvert2key_key}"
+    else
+      eval "$1=\"\${lc_hashconvert2key_key}\""
+    fi
+    return 0
+  }
+else
+  function hashconvert2key {
+#[c]  [var] value
+    typeset lc_hashconvert2key_string lc_hashconvert2key_char lc_hashconvert2key_hexpart lc_hashconvert2key_key
+    typeset lc_hashconvert2key_forcelower
+    lc_hashconvert2key_forcelower=false
+    if [[ "$1" = "-l" ]] ; then
+      typeset -l lc_hashconvert2key_string
+      shift
+    fi
+  
+    lc_hashconvert2key_string="${2-$1}"
+    if [[ -z "${lc_hashconvert2key_string}" ]] ; then
+      echo "hash error, attempted to create an empty key."
+      exit 1
+    fi
+    if ! ${lc_hashconvert2key_forcelower} && [[ "${lc_hashconvert2key_string}" = +([[:alnum:]]) ]] ; then
+      lc_hashconvert2key_key="${lc_hashconvert2key_string}"
+    else
+      while [[ ${#lc_hashconvert2key_string} -gt 0 ]] ; do
+        lc_hashconvert2key_char="${lc_hashconvert2key_string%"${lc_hashconvert2key_string#?}"}"
+        if [[ "${lc_hashconvert2key_char}" = [[:alnum:]] ]] ; then
+          lc_hashconvert2key_key="${lc_hashconvert2key_key}${lc_hashconvert2key_char}"
+        else
+          lc_hashconvert2key_hexpart=$(printf  %02X "'${lc_hashconvert2key_char}")
+          lc_hashconvert2key_key="${lc_hashconvert2key_key}${lc_hashconvert2key_hexpart}"
+        fi
+        lc_hashconvert2key_string="${lc_hashconvert2key_string#?}"
+      done
+    fi
+    if [[ $# -eq 1 ]] ; then
+      echo "${lc_hashconvert2key_key}"
+    else
+      eval "$1=\"\${lc_hashconvert2key_key}\""
+    fi
+    return 0
+  }
+fi
+#[cf]
+#[cf]
+#[of]:error
+#[of]:function die {
+function die {
+#[of]:  usage
+  if false ; then
+    echo 'Usage: die exitcode "message"'
+    echo "Error: none"
+    echo "Description: outputs messages to stderr and exits with exitcode"
+    echo "  a quick way to kill a script"
+    echo "Examples:"
+    echo '  die 1 "this bit of code failed to do something"'
+    echo "Returns:"
+    echo "  1 or given exitcode"
+    exit 1
+  fi
+#[cf]
+  typeset lc_die_return lc_die_message
+  if isnum "${1}" ; then
+    lc_die_return=$1
+    shift
+  fi
+  lc_die_message="$1"
+  errorlevel ${lc_die_return:-1}
+  msgdbg 0 "${lc_die_message:-no reason was given}"
+  exit ${lc_die_return:-1}
+}
+#[cf]
+#[of]:function msgdbg {
+function msgdbg {
+#[c]level message
+  typeset lc_msgdbg_return=$?
+  typeset lc_msgdbg_level lc_msgdbg_message
+  lc_msgdbg_level="$1"
+  lc_msgdbg_message="$2"
+#[of]:  usage
+  if [ -z "${lc_msgdbg_level##*[a-zA-Z]*}" -o -z "${lc_msgdbg_message}" ] ; then
+    echo "Usage: msgdbg debuglevel message"
+    echo "Error: debuglevel is not a number or message is missing"
+    echo "Description: outputs messages to stdout based on debuglevel"
+    echo "  used for debugging code as it is being built/tested"
+    echo 'Examples: msgdbg 3 "this bit of code is doing something"'
+    echo "  the message will only be seen if gl_debuglevel=3 or higher"
+    echo "Returns: whatever errorlevel was before this function was called"
+    exit 1
+  fi
+#[cf]
+  if [ ${gl_debuglevel:-0} -ge ${lc_msgdbg_level} ] ; then
+    printf "return=${lc_msgdbg_return:-0}  ${gl_funcname}:%s\n" "${lc_msgdbg_message}" >&2
+  fi
+  return ${lc_msgdbg_return}
+}
+#[cf]
+#[of]:function errorlevel {
+function errorlevel {
+#[of]:  usage
+  if false ; then
+    echo "Usage: errorlevel [arg]"
+    echo "Error: none"
+    echo "Description:"
+    echo "  this simply sets the desired errorlevel on return.  if arg is not a number it returns 0"
+    echo "Examples:"
+    echo '  i.e. errorlevel 7'
+    echo "    sets errorlevel to 7"
+    echo "Returns: 0 or arg"
+    exit 1
+  fi
+#[cf]
+  if [ -z "${1##*[a-zA-Z]*}" ] ; then
+    return 0
+  else
+    return $1
+  fi
+}
+#[cf]
+#[cf]
+#[cf]
+#[of]:function do_output_xml_entry {
+function do_output_xml_entry {
+  typeset lc_title lc_searchtype lc_searchvalue lc_destlabel
+  lc_filtername="$1"
+  lc_searchvalue="$2"
+  lc_destlabel="${3##*.com/}"
+
+  echo "	<entry>
+		<title>${lc_filtername} » ${lc_searchname}</title>"
+  echo "		<apps:property name='hasTheWord' value='label:inbox (${lc_searchvalue})'/>"
+
+  if [[ ! -z "${lc_destlabel}" ]] ; then
+    echo "		<apps:property name='label' value='${lc_destlabel}'/>
+		<apps:property name='shouldArchive' value='true'/>"
+	else
+    echo "		<apps:property name='shouldTrash' value='true'/>"
+	fi
+
+  echo "		<apps:property name='sizeOperator' value='s_sl'/>
+		<apps:property name='sizeUnit' value='s_smb'/>
+	</entry>"
+}
+#[cf]
+#[of]:function do_output_xml {
+function do_output_xml {
+  echo "<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns='http://www.w3.org/2005/Atom' xmlns:apps='http://schemas.google.com/apps/2006'>
+	<title>Mail Filters</title>"
+
+#[of]:  parse_filters_for_xml
+  hashkeys gl_filterKeys gl_filters
+  for gl_filterKey in "${gl_filterKeys[@]}" ; do
+    [[ $(hashgetkey - gl_filters "${gl_filterKey}" enabled) == "yes" ]] || continue
+
+#[c]    hashgetkey - gl_filters "${gl_filterKey}" "condition"
+    unset gl_conditionString
+#[of]:    for gl_searchLocation in from to cc subject body ; do
+    for lc_searchLocation in from to cc subject body ; do
+      if hashgetkey ! gl_filters "${gl_filterKey}" "condition" "${lc_searchLocation}" ; then
+        unset lc_conditionStringPart
+        case "${lc_searchLocation}" in
+          to)       lc_searchtype="to" ;;
+          cc)       lc_searchtype="cc" ;;
+          from)     lc_searchtype="from" ;;
+          subject)  lc_searchtype="subject" ;;
+          *)        lc_searchtype="" ;;
+        esac
+
+        hashkeys gl_conditionTypes gl_filters "${gl_filterKey}" "condition" "${lc_searchLocation}"
+#[c]        echo "--${gl_conditionTypes[@]}--"
+#[c]        hashkeys - gl_filters "${gl_filterKey}" "condition" "${lc_searchLocation}"
+        for gl_conditionType in "${gl_conditionTypes[@]}" ; do
+          case "${gl_conditionType}" in
+            "isn't"|"doesn't contain")  lc_searchFlag="-" ;;
+            *)                          lc_searchFlag="" ;;
+          esac
+          hashkeys gl_conditionSearchStrings gl_filters "${gl_filterKey}" "condition" "${lc_searchLocation}" "${gl_conditionType}"
+          for gl_conditionSearchString in "${gl_conditionSearchStrings[@]}" ; do
+#[c]            echo "---${gl_conditionSearchString}---"
+            gl_conditionSearchString="${gl_conditionSearchString/#/\"}"
+            gl_conditionSearchString="${gl_conditionSearchString/%/\"}"
+            apush lc_conditionStringPart "${lc_searchFlag}${gl_conditionSearchString}"
+#[c]            echo "-${lc_conditionStringPart[@]}-"
+          done
+        done
+        asort lc_conditionStringPart "${lc_conditionStringPart[@]}"
+        ajoin lc_conditionStringPart ";" "${lc_conditionStringPart[@]}"
+        gl_conditionString="${gl_conditionString}${gl_conditionString:+;}${lc_searchtype:+${lc_searchtype}:}(${lc_conditionStringPart})"
+      fi
+    done
+#[cf]
+#[of]:    if [[ $(hashgetkey - gl_filters "${gl_filterKey}" "condition") =~ (^OR ) ]] ; then
+    if [[ $(hashgetkey - gl_filters "${gl_filterKey}" "condition") =~ (^OR ) ]] ; then
+      gl_conditionString="${gl_conditionString//;/ || }"
+    else
+      gl_conditionString="${gl_conditionString//;/ }"
+    fi
+#[cf]
+    gl_conditionString="${gl_conditionString//\"/&quot;}"
+
+    do_output_xml_entry "${gl_filterKey}" "${gl_conditionString}" "$(hashgetkey - gl_filters "${gl_filterKey}" actionValue)"
+#[c]    break
+  done
+#[cf]
+  
+  echo "</feed>"
+}
+#[cf]
+
+#[of]:function do_output_dat {
+function do_output_dat {
+  echo 'version="9"
+logging="no"'
+  hashkeys gl_filterKeys gl_filters
+  for gl_filterKey in "${gl_filterKeys[@]}" ; do
+    echo "name=\"${gl_filterKey}\""
+    hashkeys gl_filterParams gl_filters "${gl_filterKey}"
+    for gl_filterParam in "${gl_filterParams[@]}" ; do
+      echo "${gl_filterParam}=\"$(hashgetkey - gl_filters "${gl_filterKey}" "${gl_filterParam}")\""
+    done
+  done
+}
+#[cf]
+#[cf]
+#[of]:setup vars
+#[c]gl_fileInput="~/.thunderbird/11111111.default-release/ImapMail/imap.gmail.com/msgFilterRules.dat"
+gl_fileInput="$(find ~/.thunderbird/ -type d -name "imap.gmail.com" -exec echo "{}" \; -quit)/msgFilterRules.dat"
+
+#[c]cp -vf "${gl_fileInput}" .
+#[c]gl_fileInput="msgFilterRules.dat"
+#[cf]
+#[of]:main
+if [[ "$1" == "-h" ]] ; then
+  echo "-d dump filter hash"
+  echo "-c dump condition types in hash"
+  echo "-o dump original filter dat from hash"
+  exit
+fi
+
+[[ ! -e "${gl_fileInput}" ]] && die "input file not found: ${gl_fileInput}"
+[[ ! -s "${gl_fileInput}" ]] && die "input file empty: ${gl_fileInput}"
+
+#[of]:load dat into hash
+hashdel gl_filters
+unset gl_key
+while read i ; do
+  if [[ "${i}" =~ ^name= ]] ; then
+    eval "gl_key=${i##*=}"
+    hashsetkey gl_filters "${gl_key}" ""
+  else
+    [[ -n "${gl_key}" ]] && \
+      eval "hashsetkey gl_filters \"${gl_key}\" ${i/=/ }"
+  fi
+done < <(cleancat "${gl_fileInput}")
+#[cf]
+#[of]:parse conditions into hash
+hashkeys gl_filterKeys gl_filters
+for gl_filterKey in "${gl_filterKeys[@]}" ; do
+
+  hashgetkey gl_conditions gl_filters "${gl_filterKey}" "condition"
+
+  if [[ -z "${gl_conditions##OR *}" ]] ; then
+    gl_conditions="${gl_conditions/#OR /}"
+    gl_conditions="${gl_conditions// OR /;}"
+  else
+    gl_conditions="${gl_conditions/#AND /}"
+    gl_conditions="${gl_conditions// AND /;}"
+  fi
+
+  asplit gl_conditions ";" "${gl_conditions}"
+  for gl_condition in "${gl_conditions[@]}" ; do
+    asplit gl_condition "," "${gl_condition//[()]/}"
+    for ((gl_index=1;gl_index<=${#gl_condition[@]};gl_index++)) ; do
+      hashsetkey gl_filters "${gl_filterKey}" "condition" "${gl_condition[@]:0:${gl_index}}" ""
+    done
+  done
+
+done
+#[cf]
+
+case "$1" in
+  -d)
+    set | grep ^gl_filters
+    ;;
+  -c)
+    hashkeys gl_filterkeys gl_filters
+    for gl_filterkey in "${gl_filterkeys[@]}" ; do
+      echo "${gl_filterkey}"
+      echo "from subject body"
+      hashgetkey ! gl_filters "${gl_filterkey}" condition from && echo -n "yes " || echo -n "no "
+      hashgetkey ! gl_filters "${gl_filterkey}" condition subject && echo -n "yes " || echo -n "no "
+      hashgetkey ! gl_filters "${gl_filterkey}" condition body && echo -n "yes " || echo -n "no "
+      echo
+    done
+    ;;
+  -o) do_output_dat ;;
+  *)  do_output_xml ;;
+esac
+#[cf]
+# vim:number:tabstop=2:shiftwidth=2:autoindent:foldmethod=marker:foldlevel=0:foldmarker=#[of]\:,#[cf]
