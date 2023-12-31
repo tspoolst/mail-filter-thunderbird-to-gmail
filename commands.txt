@@ -1,3 +1,6 @@
+#display the usage help
+./d2x.bsh -h
+
 #create .xml file from current filter rules in thunderbird
 ./d2x.bsh | tee g.xml
 

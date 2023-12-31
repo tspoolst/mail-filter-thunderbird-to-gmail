@@ -3,7 +3,7 @@
 #[c]this app extracts the email message filters from thunderbird and converts them to gmail xml rules
 #[c]googles "search operator help page" and example rule exports were used to construct the xml output.
 #[c]
-#[c]several functions were borrowed from my "base" function library to simplify my coding efforts.
+#[c]several functions were borrowed from my "base" function library "https://github.com/tspoolst/shfnlib/releases/latest" to simplify my coding efforts.
 #[c]
 #[c]currently supports rules with these fields
 #[c]  from to cc subject body
@@ -1497,6 +1497,35 @@ logging="no"'
 }
 #[cf]
 #[cf]
+#[of]:usage
+if [[ "$1" == "-h" ]] ; then
+  echo "Usage: $0 [-c|-d|-h|-o]"
+  echo "Description:"
+  echo "  converts Thunderbird .dat mail filters into gmail compatible .xml filters"
+  echo "Examples:"
+  echo "generate xml output - for import into gmail rules"
+  echo "  $0 | tee g.xml"
+  echo "  then open the gmail filters page"
+  echo '    https://mail.google.com/mail/u/0/?ogbl#settings/filters'
+  echo "  select All filters and delete them."
+  echo "  then using \"Import filters\""
+  echo "    open g.xml"
+  echo "    select \"Apply new filters to existing email\""
+  echo "    \"Create filters\""
+  echo ""
+  echo "generate dat output - for debugging rule parser loading"
+  echo "  $0 -o | tee g.dat"
+  echo "dump filter condition - for debugging condition parser"
+  echo "  $0 -c"
+  echo "dump hash - for debugging hash structure"
+  echo "  $0 -d"
+  echo "show this help screen"
+  echo "  $0 -h"
+  echo "Returns:"
+  echo "  0 success"
+  exit
+fi
+#[cf]
 #[of]:setup vars
 #[c]gl_fileInput="~/.thunderbird/11111111.default-release/ImapMail/imap.gmail.com/msgFilterRules.dat"
 gl_fileInput="$(find ~/.thunderbird/ -type d -name "imap.gmail.com" -exec echo "{}" \; -quit)/msgFilterRules.dat"
@@ -1505,15 +1534,9 @@ gl_fileInput="$(find ~/.thunderbird/ -type d -name "imap.gmail.com" -exec echo "
 #[c]gl_fileInput="msgFilterRules.dat"
 #[cf]
 #[of]:main
-if [[ "$1" == "-h" ]] ; then
-  echo "-d dump filter hash"
-  echo "-c dump condition types in hash"
-  echo "-o dump original filter dat from hash"
-  exit
-fi
-
 [[ ! -e "${gl_fileInput}" ]] && die "input file not found: ${gl_fileInput}"
 [[ ! -s "${gl_fileInput}" ]] && die "input file empty: ${gl_fileInput}"
+echo "using \"${gl_fileInput}\" as our input file." >&2
 
 #[of]:load dat into hash
 hashdel gl_filters
